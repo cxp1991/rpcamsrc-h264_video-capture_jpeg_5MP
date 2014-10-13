@@ -313,9 +313,8 @@ static void encoder_capture_buffer_callback(MMAL_PORT_T * port, MMAL_BUFFER_HEAD
 			complete = 1;
 		}
 		// Now flag if we have completed
-		if (buffer->
-		    flags & (MMAL_BUFFER_HEADER_FLAG_FRAME_END |
-			     MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED))
+		if (buffer->flags & (MMAL_BUFFER_HEADER_FLAG_FRAME_END |
+				     MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED))
 			complete = 1;
 		if (!complete)
 			count++;
@@ -703,6 +702,25 @@ static MMAL_STATUS_T create_encoder_capture_component(RASPIVID_STATE * state)
 }
 
 /**
+ * Destroy the encoder capture image  component
+ *
+ * @param state Pointer to state control struct
+ *
+ */
+static void destroy_encoder_captureimage_component(RASPIVID_STATE * state)
+{
+	// Get rid of any port buffers first
+	if (state->encoder_capture_pool) {
+		mmal_port_pool_destroy(state->encoder_capture_component->output[0], state->encoder_capture_pool);
+	}
+
+	if (state->encoder_capture_component) {
+		mmal_component_destroy(state->encoder_capture_component);
+		state->encoder_capture_component = NULL;
+	}
+}
+
+/**
  * Create the encoder component, set up its ports
  *
  * @param state Pointer to state control struct
@@ -865,6 +883,7 @@ static void destroy_encoder_component(RASPIVID_STATE * state)
 		state->encoder_component = NULL;
 	}
 }
+
 
 /**
  * Connect two specific ports together
@@ -1140,11 +1159,21 @@ gboolean raspi_capture_image(RASPIVID_STATE * state, const char *filename)
 }
 
 static RASPIVID_STATE *mState;
+/*
+ * Lock dataManager
+ **/
+#define LOCK_DATA_MANAGER(x) \
+	while (dataManagerMutex) \
+	usleep(1000); \
+	x = 1
+#define UNLOCK_DATA_MANAGER(x) x = 0
+static int dataManagerMutex;
+
 
 static void capture_image_setup(RASPIVID_STATE * state)
 {
 	puts("capture_image_setup()");
-
+	
 	MMAL_PORT_T *encoder_capture_input_port = NULL;
 	MMAL_STATUS_T status = MMAL_SUCCESS;
 
@@ -1165,10 +1194,13 @@ static void capture_image_setup(RASPIVID_STATE * state)
 	vcos_assert(status == MMAL_SUCCESS);
 }
 
-char *raspi_capture_photo()
+char *raspi_capture_photo(const char *username)
 {
 	puts("RaspiCapture.c[line 1119]: raspberry_capture_photo");
 
+	/** Wait until previous capture finish */
+	LOCK_DATA_MANAGER(dataManagerMutex);
+	
 	/** 
 	 * Create file's name
 	 * File name format: ddmmyy_hhmmss.jpg
@@ -1178,7 +1210,7 @@ char *raspi_capture_photo()
 	time_t t = time(NULL);
 	struct tm tm = *localtime(&t);
 
-	sprintf(name, "%d%d%d_%d%d%d.jpg", tm.tm_mday, tm.tm_mon + 1,
+	sprintf(name, "%s_%d%d%d_%d%d%d.jpg", username, tm.tm_mday, tm.tm_mon + 1,
 		tm.tm_year + 1900, tm.tm_hour, tm.tm_min, tm.tm_sec);
 
 	/* Initialize capture image component */
@@ -1187,6 +1219,14 @@ char *raspi_capture_photo()
 	/* Start capture image */
 	raspi_capture_image(mState, name);
 
+	/* Destroy commopent */
+	if (mState->encoder_capture_component)
+		mmal_component_disable(mState->encoder_capture_component);
+		
+	destroy_encoder_captureimage_component(mState);
+	
+	UNLOCK_DATA_MANAGER(dataManagerMutex);
+	
 	return name;
 }
 
@@ -1253,8 +1293,6 @@ RASPIVID_STATE *raspi_capture_setup(RASPIVID_CONFIG * config)
  * Connect components together.
  * Enable video callback
  */
- /* Listen capture image */
- 
 gboolean raspi_capture_start(RASPIVID_STATE * state)
 {
 	MMAL_STATUS_T status = MMAL_SUCCESS;
@@ -1280,7 +1318,8 @@ gboolean raspi_capture_start(RASPIVID_STATE * state)
 			fprintf(stderr, "Connecting camera preview port to preview input port\n");
 			fprintf(stderr, "Starting video preview\n");
 		}
-// Connect camera to preview
+
+		/* Connect camera to preview */
 		status =
 		    connect_ports(camera_preview_port, preview_input_port,
 				  &state->preview_connection);
@@ -1291,7 +1330,8 @@ gboolean raspi_capture_start(RASPIVID_STATE * state)
 	}
 	if (state->config->verbose)
 		fprintf(stderr, "Connecting camera stills port to encoder input port\n");
-// Now connect the camera to the encoder
+
+	/* Now connect the camera to the encoder */
 	status =
 	    connect_ports(state->camera_video_port, encoder_input_port, &state->encoder_connection);
 	if (status != MMAL_SUCCESS) {
@@ -1301,20 +1341,23 @@ gboolean raspi_capture_start(RASPIVID_STATE * state)
 			       __func__);
 		return FALSE;
 	}
-// Set up our userdata - this is passed though to the callback where we need the information.
+
+	/* Set up our userdata - this is passed though to the callback where we need the information. */
 	state->callback_data.state = state;
 	state->callback_data.abort = 0;
 	state->encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&state->callback_data;
 	if (state->config->verbose)
 		fprintf(stderr, "Enabling encoder output port\n");
-// Enable the encoder output port and tell it its callback function
+
+	/* Enable the encoder output port and tell it its callback function */
 	status = mmal_port_enable(state->encoder_output_port, encoder_buffer_callback);
 	if (status != MMAL_SUCCESS) {
 		vcos_log_error("Failed to setup encoder output");
 		goto error;
 	}
 	if (state->config->demoMode) {
-// Run for the user specific time..
+
+		/* Run for the user specific time.. */
 		int num_iterations = state->config->timeout / state->config->demoInterval;
 		int i;
 		if (state->config->verbose)
@@ -1324,6 +1367,7 @@ gboolean raspi_capture_start(RASPIVID_STATE * state)
 			vcos_sleep(state->config->demoInterval);
 		}
 	}
+
 	/* Save state for capture photo  */
 	mState = calloc(1, sizeof(RASPIVID_STATE));
 	mState = state;
@@ -1334,7 +1378,8 @@ gboolean raspi_capture_start(RASPIVID_STATE * state)
 	    MMAL_SUCCESS) {
 		goto error;
 	}
-// Send all the buffers to the encoder output port
+
+	/* Send all the buffers to the encoder output port */
 	{
 		int num = mmal_queue_length(state->encoder_pool->queue);
 		int q;
@@ -1349,19 +1394,7 @@ gboolean raspi_capture_start(RASPIVID_STATE * state)
 				    ("Unable to send a buffer to encoder output port (%d)", q);
 		}
 	}
-// Now wait until we need to stop. Whilst waiting we do need to check to see if we have aborted (for example
-// out of storage space)
-// Going to check every ABORT_INTERVAL milliseconds
-#if 0
-	for (wait = 0; state->config->timeout == 0 || wait < state->config->timeout;
-	     wait += ABORT_INTERVAL) {
-		vcos_sleep(ABORT_INTERVAL);
-		if (state->callback_data.abort)
-			break;
-	}
-	if (state->config->verbose)
-		fprintf(stderr, "Finished capture\n");
-#endif
+
 	return (status == MMAL_SUCCESS);
  error:
 	raspi_capture_stop(state);

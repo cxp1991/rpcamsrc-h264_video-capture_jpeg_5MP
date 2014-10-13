@@ -906,7 +906,8 @@ int raspicamcontrol_set_exposure_compensation(MMAL_COMPONENT_T * camera, int exp
 int raspicamcontrol_set_exposure_mode(MMAL_COMPONENT_T * camera, MMAL_PARAM_EXPOSUREMODE_T mode)
 {
 	MMAL_PARAMETER_EXPOSUREMODE_T exp_mode = { {MMAL_PARAMETER_EXPOSURE_MODE, sizeof(exp_mode)}
-	, mode };
+	, mode
+	};
 
 	if (!camera)
 		return 1;
@@ -933,7 +934,8 @@ int raspicamcontrol_set_exposure_mode(MMAL_COMPONENT_T * camera, MMAL_PARAM_EXPO
 int raspicamcontrol_set_awb_mode(MMAL_COMPONENT_T * camera, MMAL_PARAM_AWBMODE_T awb_mode)
 {
 	MMAL_PARAMETER_AWBMODE_T param = { {MMAL_PARAMETER_AWB_MODE, sizeof(param)}
-	, awb_mode };
+	, awb_mode
+	};
 
 	if (!camera)
 		return 1;
@@ -973,7 +975,8 @@ int raspicamcontrol_set_awb_mode(MMAL_COMPONENT_T * camera, MMAL_PARAM_AWBMODE_T
 int raspicamcontrol_set_imageFX(MMAL_COMPONENT_T * camera, MMAL_PARAM_IMAGEFX_T imageFX)
 {
 	MMAL_PARAMETER_IMAGEFX_T imgFX = { {MMAL_PARAMETER_IMAGE_EFFECT, sizeof(imgFX)}
-	, imageFX };
+	, imageFX
+	};
 
 	if (!camera)
 		return 1;
@@ -996,7 +999,8 @@ mmal_port_parameter_set(camera->control, &imfx_param.hdr);
 int raspicamcontrol_set_colourFX(MMAL_COMPONENT_T * camera, const MMAL_PARAM_COLOURFX_T * colourFX)
 {
 	MMAL_PARAMETER_COLOURFX_T colfx = { {MMAL_PARAMETER_COLOUR_EFFECT, sizeof(colfx)}
-	, 0, 0, 0 };
+	, 0, 0, 0
+	};
 
 	if (!camera)
 		return 1;
@@ -1039,7 +1043,8 @@ int raspicamcontrol_set_rotation(MMAL_COMPONENT_T * camera, int rotation)
 int raspicamcontrol_set_flips(MMAL_COMPONENT_T * camera, int hflip, int vflip)
 {
 	MMAL_PARAMETER_MIRROR_T mirror = { {MMAL_PARAMETER_MIRROR, sizeof(MMAL_PARAMETER_MIRROR_T)}
-	, MMAL_PARAM_MIRROR_NONE };
+	, MMAL_PARAM_MIRROR_NONE
+	};
 
 	if (hflip && vflip)
 		mirror.value = MMAL_PARAM_MIRROR_BOTH;
